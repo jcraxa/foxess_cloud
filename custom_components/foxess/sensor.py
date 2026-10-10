@@ -41,6 +41,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 from homeassistant.util.ssl import SSLCipherList
 from homeassistant.helpers.icon import icon_for_battery_level
+from homeassistant.helpers.device_registry import DeviceInfo
 import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
@@ -111,9 +112,20 @@ token = None
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the FoxESS sensor."""
+    original_add_entities = async_add_entities
+
+    def add_entities_with_device(entities, *args, **kwargs):
+        for entity in entities:
+            entity._foxess_device_sn = config.get(CONF_DEVICESN)
+        return original_add_entities(entities, *args, **kwargs)
+
+    async_add_entities = add_entities_with_device
     global LastHour, timeslice, last_api, RestrictGetVar, xtzone, V1_Api, Evo
     Evo = False
-    name = config.get(CONF_NAME)
+    name = config.get(CONF_NAME, DEFAULT_NAME)
+    # Preserve custom names, but normalize the default FoxESS brand casing.
+    if isinstance(name, str) and name.strip().casefold() == "foxess":
+        name = DEFAULT_NAME
     deviceID = config.get(CONF_DEVICEID)
     devicesn = config.get(CONF_DEVICESN)
     apiKey = config.get(CONF_APIKEY)
@@ -122,7 +134,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     RestrictGetVar = config.get(CONF_GET_VARIABLES)
     V1_Api = config.get(CONF_V1_API)
     Evo = config.get(CONF_EVO)
-    _LOGGER.debug("API Key: %s", apiKey)
+    _LOGGER.debug("FoxESS API key configured: %s", bool(apiKey))
     _LOGGER.debug("Device SN: %s", devicesn)
     _LOGGER.debug("Device ID: %s", deviceID)
     _LOGGER.debug("FoxESS Scan Interval: %s minutes", SCAN_MINUTES)
@@ -1320,7 +1332,25 @@ async def getRaw(hass, allData, apiKey, devicesn):
             return True
 
 
-class FoxESSPowerString(CoordinatorEntity, SensorEntity):
+
+
+class FoxESSDeviceMixin:
+    """Associate legacy sensors with a device; never change entity unique IDs."""
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        device_sn = getattr(self, "_foxess_device_sn", None)
+        if not device_sn:
+            return None
+        return DeviceInfo(
+            identifiers={("foxess", device_sn)},
+            name="FoxESS",
+            manufacturer="FoxESS",
+            model="Inverter",
+            serial_number=device_sn,
+        )
+
+class FoxESSPowerString(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
@@ -1351,7 +1381,7 @@ class FoxESSPowerString(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSCurrent(CoordinatorEntity, SensorEntity):
+class FoxESSCurrent(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
@@ -1382,7 +1412,7 @@ class FoxESSCurrent(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSFreq(CoordinatorEntity, SensorEntity):
+class FoxESSFreq(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.FREQUENCY
     _attr_native_unit_of_measurement = UnitOfFrequency.HERTZ
@@ -1413,7 +1443,7 @@ class FoxESSFreq(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSPower(CoordinatorEntity, SensorEntity):
+class FoxESSPower(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
@@ -1444,7 +1474,7 @@ class FoxESSPower(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSVolt(CoordinatorEntity, SensorEntity):
+class FoxESSVolt(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.VOLTAGE
     _attr_native_unit_of_measurement = UnitOfElectricPotential.VOLT
@@ -1475,7 +1505,7 @@ class FoxESSVolt(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSReactivePower(CoordinatorEntity, SensorEntity):
+class FoxESSReactivePower(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.REACTIVE_POWER
     _attr_native_unit_of_measurement = UnitOfReactivePower.VOLT_AMPERE_REACTIVE
@@ -1503,7 +1533,7 @@ class FoxESSReactivePower(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSPowerFactor(CoordinatorEntity, SensorEntity):
+class FoxESSPowerFactor(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.POWER_FACTOR
     _attr_native_unit_of_measurement = PERCENTAGE
@@ -1531,7 +1561,7 @@ class FoxESSPowerFactor(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
+class FoxESSEnergyGenerated(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1571,7 +1601,7 @@ class FoxESSEnergyGenerated(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSEnergyThroughput(CoordinatorEntity, SensorEntity):
+class FoxESSEnergyThroughput(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1606,7 +1636,7 @@ class FoxESSEnergyThroughput(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSEnergyGridConsumption(CoordinatorEntity, SensorEntity):
+class FoxESSEnergyGridConsumption(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1637,7 +1667,7 @@ class FoxESSEnergyGridConsumption(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSEnergyFeedin(CoordinatorEntity, SensorEntity):
+class FoxESSEnergyFeedin(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1668,7 +1698,7 @@ class FoxESSEnergyFeedin(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSEnergyBatCharge(CoordinatorEntity, SensorEntity):
+class FoxESSEnergyBatCharge(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1698,7 +1728,7 @@ class FoxESSEnergyBatCharge(CoordinatorEntity, SensorEntity):
             return energycharge
         return None
 
-class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
+class FoxESSMaxBatChargeCurrent(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
@@ -1728,7 +1758,7 @@ class FoxESSMaxBatChargeCurrent(CoordinatorEntity, SensorEntity):
             return charge
         return None
 
-class FoxESSMaxBatDischargeCurrent(CoordinatorEntity, SensorEntity):
+class FoxESSMaxBatDischargeCurrent(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.CURRENT
     _attr_native_unit_of_measurement = UnitOfElectricCurrent.AMPERE
@@ -1759,7 +1789,7 @@ class FoxESSMaxBatDischargeCurrent(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSEnergyBatDischarge(CoordinatorEntity, SensorEntity):
+class FoxESSEnergyBatDischarge(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1792,7 +1822,7 @@ class FoxESSEnergyBatDischarge(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSEnergyLoad(CoordinatorEntity, SensorEntity):
+class FoxESSEnergyLoad(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1824,7 +1854,7 @@ class FoxESSEnergyLoad(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSPVEnergyTotal(CoordinatorEntity, SensorEntity):
+class FoxESSPVEnergyTotal(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -1856,7 +1886,7 @@ class FoxESSPVEnergyTotal(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSInverter(CoordinatorEntity, SensorEntity):
+class FoxESSInverter(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, deviceID):
         super().__init__(coordinator=coordinator)
         _LOGGER.debug("Initiating Entity - Inverter")
@@ -1916,7 +1946,7 @@ class FoxESSInverter(CoordinatorEntity, SensorEntity):
         }
 
 
-class FoxESSRunningState(CoordinatorEntity, SensorEntity):
+class FoxESSRunningState(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, deviceID, nameValue, uniqueValue, keyValue):
         super().__init__(coordinator=coordinator)
         self._nameValue = nameValue
@@ -1970,7 +2000,7 @@ class FoxESSRunningState(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
+class FoxESSEnergySolar(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.TOTAL_INCREASING
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -2021,7 +2051,7 @@ class FoxESSEnergySolar(CoordinatorEntity, SensorEntity):
         return round(energysolar, 3)
 
 
-class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
+class FoxESSSolarPower(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.POWER
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
@@ -2081,7 +2111,7 @@ class FoxESSSolarPower(CoordinatorEntity, SensorEntity):
         return round(total, 3)
 
 
-class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
+class FoxESSBatSoC(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = "%"
@@ -2116,7 +2146,7 @@ class FoxESSBatSoC(CoordinatorEntity, SensorEntity):
         return icon_for_battery_level(battery_level=self.native_value, charging=None)
 
 
-class FoxESSBatMinSoC(CoordinatorEntity, SensorEntity):
+class FoxESSBatMinSoC(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = "%"
 
@@ -2147,7 +2177,7 @@ class FoxESSBatMinSoC(CoordinatorEntity, SensorEntity):
         return icon_for_battery_level(battery_level=self.native_value, charging=None)
 
 
-class FoxESSBatMinSoConGrid(CoordinatorEntity, SensorEntity):
+class FoxESSBatMinSoConGrid(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = "%"
 
@@ -2178,7 +2208,7 @@ class FoxESSBatMinSoConGrid(CoordinatorEntity, SensorEntity):
         return icon_for_battery_level(battery_level=self.native_value, charging=None)
 
 
-class FoxESSTemp(CoordinatorEntity, SensorEntity):
+class FoxESSTemp(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_state_class: SensorStateClass = SensorStateClass.MEASUREMENT
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
@@ -2209,7 +2239,7 @@ class FoxESSTemp(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
+class FoxESSResidualEnergy(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
 
@@ -2242,7 +2272,7 @@ class FoxESSResidualEnergy(CoordinatorEntity, SensorEntity):
         return None
 
 
-class FoxESSResponseTime(CoordinatorEntity, SensorEntity):
+class FoxESSResponseTime(FoxESSDeviceMixin, CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = "mS"
 
     def __init__(self, coordinator, name, deviceID):
@@ -2265,3 +2295,9 @@ class FoxESSResponseTime(CoordinatorEntity, SensorEntity):
         else:
             return self.coordinator.data["raw"]["ResponseTime"]
         return None
+
+
+async def async_setup_entry(hass, entry, async_add_entities):
+    """Use the original sensor engine with UI-managed configuration."""
+    config = {**entry.data, **entry.options}
+    await async_setup_platform(hass, config, async_add_entities)
