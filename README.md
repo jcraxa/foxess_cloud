@@ -9,6 +9,13 @@
     </br>
 </h2>
 
+## 🆕 UI Configuration Support
+
+This fork of the original [macxq FoxESS integration](https://github.com/macxq/foxess-ha) supports configuration directly through the Home Assistant user interface. Add as custom repository from HACS. After installation, navigate to **Settings → Devices & Services → Add Integration**, search for **FoxESS - Cloud**, and follow the setup instructions. Configuration through `configuration.yaml` is no longer required for new installations. Existing users migrating from YAML configuration should retain their original device ID to preserve entity identities and history.
+
+---
+
+
 ## ⚙️ Installation & ♻️ Update
 
 Use hacs.io to manage the installation and update process. Right now this integration is part of HACS by default - no more neeed to add it by custom repositories 🥳
